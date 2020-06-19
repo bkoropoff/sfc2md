@@ -1,15 +1,15 @@
+#include <avr/cpufunc.h>
+#include <avr/interrupt.h>
+#include <avr/io.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <avr/io.h>
-#include <avr/interrupt.h>
-#include <avr/cpufunc.h>
 #include <util/delay.h>
 
 /* Helper macros */
 #define SET(R, P) ((R) |= _BV(P))
 #define CLEAR(R, P) ((R) &= ~_BV(P))
-#define TEST(R, P) ((R) & _BV(P))
+#define TEST(R, P) ((R)&_BV(P))
 
 /*
  * SFC/SNES controller reading
@@ -48,47 +48,45 @@
 #define SFC_DEC(s, b) (((s) >> (b)) & 1)
 
 /* Set up SFC/SNES pins */
-void
-sfc_init(void)
+void sfc_init(void)
 {
-  /* Latch and clock are outputs */
-  SET(SFC_DDR, SFC_LATCHDD);
-  SET(SFC_DDR, SFC_CLKDD);
-  /* Data is input */
-  CLEAR(SFC_DDR, SFC_DATADD);
-  /* Clock idles high */
-  SET(SFC_OUT_REG, SFC_CLK);
+    /* Latch and clock are outputs */
+    SET(SFC_DDR, SFC_LATCHDD);
+    SET(SFC_DDR, SFC_CLKDD);
+    /* Data is input */
+    CLEAR(SFC_DDR, SFC_DATADD);
+    /* Clock idles high */
+    SET(SFC_OUT_REG, SFC_CLK);
 }
 
 /* Read controller */
-uint16_t
-sfc_read(void)
+uint16_t sfc_read(void)
 {
-  uint8_t i;
-  uint16_t state = 0;
+    uint8_t i;
+    uint16_t state = 0;
 
-  /* A SFC/SNES controller is basically a 16-bit shift register on
-   * the end of a cable.  Latch the data and shift it out. */
+    /* A SFC/SNES controller is basically a 16-bit shift register on
+     * the end of a cable.  Latch the data and shift it out. */
 
-  /* Send latch pulse */
-  SET(SFC_OUT_REG, SFC_LATCH);
-  _delay_us(SFC_LATCH_PULSE);
-  CLEAR(SFC_OUT_REG, SFC_LATCH);
+    /* Send latch pulse */
+    SET(SFC_OUT_REG, SFC_LATCH);
+    _delay_us(SFC_LATCH_PULSE);
+    CLEAR(SFC_OUT_REG, SFC_LATCH);
 
-  /* Clock all button states */
-  for (i = 0; i < 16; ++i)
-  {
-    _delay_us(SFC_CLK_HALF_CYCLE);
-    CLEAR(SFC_OUT_REG, SFC_CLK);
-    state = (state << 1) | (TEST(SFC_IN_REG, SFC_DATA) ? 1 : 0);
-    _delay_us(SFC_CLK_HALF_CYCLE);
-    SET(SFC_OUT_REG, SFC_CLK);
-  }
+    /* Clock all button states */
+    for (i = 0; i < 16; ++i)
+    {
+        _delay_us(SFC_CLK_HALF_CYCLE);
+        CLEAR(SFC_OUT_REG, SFC_CLK);
+        state = (state << 1) | (TEST(SFC_IN_REG, SFC_DATA) ? 1 : 0);
+        _delay_us(SFC_CLK_HALF_CYCLE);
+        SET(SFC_OUT_REG, SFC_CLK);
+    }
 
-  return state;
+    return state;
 }
 
-/* 
+/*
  * MD/Gen controller emulation
  */
 
@@ -120,12 +118,12 @@ sfc_read(void)
 
 /* Button mode enum */
 static enum {
-  /* 6 buttons, B and C are action and jump */
-  MODE_6BUTTON_BC,
-  /* 6 buttons, A and B are action and jump */
-  MODE_6BUTTON_AB,
-  /* Xenocrisis */
-  MODE_6BUTTON_XC
+    /* 6 buttons, B and C are action and jump */
+    MODE_6BUTTON_BC,
+    /* 6 buttons, A and B are action and jump */
+    MODE_6BUTTON_AB,
+    /* Xenocrisis */
+    MODE_6BUTTON_XC
 } __attribute__((packed)) mode;
 
 /* Data output schedule at each select line change */
@@ -133,364 +131,318 @@ static uint8_t schedule[8];
 /* Indication from timer to restart output schedule.
  * This skips 6-button phases when the game only
  * polls us as a 3-button controller. */
-//static uint8_t volatile restart;
+// static uint8_t volatile restart;
 uint8_t register restart asm("r5");
 
 /* Return appropriate MD button values based on
  * button mode */
-static inline uint8_t
-md_sched_a(uint16_t state)
+static inline uint8_t md_sched_a(uint16_t state)
 {
-  switch (mode)
-  {
+    switch (mode)
+    {
     case MODE_6BUTTON_BC:
-      return SFC_DEC(state, SFC_A);
+        return SFC_DEC(state, SFC_A);
     case MODE_6BUTTON_AB:
-      return SFC_DEC(state, SFC_Y);
+        return SFC_DEC(state, SFC_Y);
     case MODE_6BUTTON_XC:
-      return SFC_DEC(state, SFC_B);
-  }
-  return 1;
+        return SFC_DEC(state, SFC_B);
+    }
+    return 1;
 }
 
-static inline uint8_t
-md_sched_b(uint16_t state)
+static inline uint8_t md_sched_b(uint16_t state)
 {
-  switch (mode)
-  {
+    switch (mode)
+    {
     case MODE_6BUTTON_BC:
-      return SFC_DEC(state, SFC_Y);
+        return SFC_DEC(state, SFC_Y);
     case MODE_6BUTTON_AB:
-      return SFC_DEC(state, SFC_B);
+        return SFC_DEC(state, SFC_B);
     case MODE_6BUTTON_XC:
-      return SFC_DEC(state, SFC_A);
-  }
-  return 1;
+        return SFC_DEC(state, SFC_A);
+    }
+    return 1;
 }
 
-static inline uint8_t
-md_sched_c(uint16_t state)
+static inline uint8_t md_sched_c(uint16_t state)
 {
-  switch (mode)
-  {
+    switch (mode)
+    {
     case MODE_6BUTTON_BC:
-      return SFC_DEC(state, SFC_B);
+        return SFC_DEC(state, SFC_B);
     case MODE_6BUTTON_AB:
-      return SFC_DEC(state, SFC_A);
+        return SFC_DEC(state, SFC_A);
     case MODE_6BUTTON_XC:
-      return SFC_DEC(state, SFC_R);
-  }
-  return 1;
+        return SFC_DEC(state, SFC_R);
+    }
+    return 1;
 }
 
-static inline uint8_t
-md_sched_x(uint16_t state)
+static inline uint8_t md_sched_x(uint16_t state)
 {
-  switch (mode)
-  {
+    switch (mode)
+    {
     case MODE_6BUTTON_BC:
-      return SFC_DEC(state, SFC_L);
+        return SFC_DEC(state, SFC_L);
     case MODE_6BUTTON_AB:
-      return SFC_DEC(state, SFC_L);
+        return SFC_DEC(state, SFC_L);
     case MODE_6BUTTON_XC:
-      return SFC_DEC(state, SFC_Y);
-  }
-  return 1;
+        return SFC_DEC(state, SFC_Y);
+    }
+    return 1;
 }
 
-static inline uint8_t
-md_sched_y(uint16_t state)
+static inline uint8_t md_sched_y(uint16_t state)
 {
-  switch (mode)
-  {
+    switch (mode)
+    {
     case MODE_6BUTTON_BC:
-      return SFC_DEC(state, SFC_X);
+        return SFC_DEC(state, SFC_X);
     case MODE_6BUTTON_AB:
-      return SFC_DEC(state, SFC_X);
+        return SFC_DEC(state, SFC_X);
     case MODE_6BUTTON_XC:
-      return SFC_DEC(state, SFC_X);
-  }
-  return 1;
+        return SFC_DEC(state, SFC_X);
+    }
+    return 1;
 }
 
-static inline uint8_t
-md_sched_z(uint16_t state)
+static inline uint8_t md_sched_z(uint16_t state)
 {
-  switch (mode)
-  {
+    switch (mode)
+    {
     case MODE_6BUTTON_BC:
-      return SFC_DEC(state, SFC_R);
+        return SFC_DEC(state, SFC_R);
     case MODE_6BUTTON_AB:
-      return SFC_DEC(state, SFC_R);
+        return SFC_DEC(state, SFC_R);
     case MODE_6BUTTON_XC:
-      return SFC_DEC(state, SFC_L);
-  }
-  return 1;
+        return SFC_DEC(state, SFC_L);
+    }
+    return 1;
 }
 
-/* 
+/*
  * Data output schedule.
- * 
+ *
  * Games typically keep the select line high when idle and
  * issue negative pulses when polling the controller.  The
- * first two downward pulses act like the ordinary multiplexer 
+ * first two downward pulses act like the ordinary multiplexer
  * in 3-button controller.  On the 3rd negative edge, D0-D4
  * are set low to indicate that we are a 6-button controller.
  * On the subsequent positive edge, D0-D4 are set to the
  * state of the extra buttons.  On the 4th negative edge,
  * D0-D4 are set high.  Most games issue this pulse but ignore
- * the output, but Xenocrisis actually checks it. The schedule 
+ * the output, but Xenocrisis actually checks it. The schedule
  * then repeats.
  */
- 
-static uint8_t
-md_sched0(uint16_t state)
+
+static uint8_t md_sched0(uint16_t state)
 {
-  return
-    MD_ENC(MD_D0, SFC_DEC(state, SFC_UP)) |
-    MD_ENC(MD_D1, SFC_DEC(state, SFC_DOWN)) |
-    MD_ENC(MD_D2, SFC_DEC(state, SFC_LEFT)) |
-    MD_ENC(MD_D3, SFC_DEC(state, SFC_RIGHT)) |
-    MD_ENC(MD_D4, md_sched_b(state)) |
-    MD_ENC(MD_D5, md_sched_c(state));
+    return MD_ENC(MD_D0, SFC_DEC(state, SFC_UP)) | MD_ENC(MD_D1, SFC_DEC(state, SFC_DOWN)) |
+           MD_ENC(MD_D2, SFC_DEC(state, SFC_LEFT)) | MD_ENC(MD_D3, SFC_DEC(state, SFC_RIGHT)) |
+           MD_ENC(MD_D4, md_sched_b(state)) | MD_ENC(MD_D5, md_sched_c(state));
 }
 
-static uint8_t
-md_sched1(uint16_t state)
+static uint8_t md_sched1(uint16_t state)
 {
-  return
-    MD_ENC(MD_D0, SFC_DEC(state, SFC_UP)) |
-    MD_ENC(MD_D1, SFC_DEC(state, SFC_DOWN)) |
-    MD_ENC(MD_D2, 0) |
-    MD_ENC(MD_D3, 0) |
-    MD_ENC(MD_D4, md_sched_a(state)) |
-    MD_ENC(MD_D5, SFC_DEC(state, SFC_START));
+    return MD_ENC(MD_D0, SFC_DEC(state, SFC_UP)) | MD_ENC(MD_D1, SFC_DEC(state, SFC_DOWN)) |
+           MD_ENC(MD_D2, 0) | MD_ENC(MD_D3, 0) | MD_ENC(MD_D4, md_sched_a(state)) |
+           MD_ENC(MD_D5, SFC_DEC(state, SFC_START));
 }
 
-static uint8_t
-md_sched2(uint16_t state)
+static uint8_t md_sched2(uint16_t state) { return md_sched0(state); }
+
+static uint8_t md_sched3(uint16_t state) { return md_sched1(state); }
+
+static uint8_t md_sched4(uint16_t state) { return md_sched0(state); }
+
+static uint8_t md_sched5(uint16_t state)
 {
-  return md_sched0(state);
+    return MD_ENC(MD_D0, 0) | MD_ENC(MD_D1, 0) | MD_ENC(MD_D2, 0) | MD_ENC(MD_D3, 0) |
+           MD_ENC(MD_D4, md_sched_a(state)) | MD_ENC(MD_D5, SFC_DEC(state, SFC_START));
 }
 
-static uint8_t
-md_sched3(uint16_t state)
+static uint8_t md_sched6(uint16_t state)
 {
-  return md_sched1(state);
+    return MD_ENC(MD_D0, md_sched_z(state)) | MD_ENC(MD_D1, md_sched_y(state)) |
+           MD_ENC(MD_D2, md_sched_x(state)) | MD_ENC(MD_D3, SFC_DEC(state, SFC_SELECT)) |
+           MD_ENC(MD_D4, md_sched_b(state)) | MD_ENC(MD_D5, md_sched_c(state));
 }
 
-static uint8_t
-md_sched4(uint16_t state)
+static uint8_t md_sched7(uint16_t state)
 {
-  return md_sched0(state);
+    return MD_ENC(MD_D0, 1) | MD_ENC(MD_D1, 1) | MD_ENC(MD_D2, 1) | MD_ENC(MD_D3, 1) |
+           MD_ENC(MD_D4, md_sched_a(state)) | MD_ENC(MD_D5, SFC_DEC(state, SFC_START));
 }
 
-static uint8_t
-md_sched5(uint16_t state)
+static void md_sched_update(uint16_t state)
 {
-  return
-    MD_ENC(MD_D0, 0) |
-    MD_ENC(MD_D1, 0) |
-    MD_ENC(MD_D2, 0) |
-    MD_ENC(MD_D3, 0) |
-    MD_ENC(MD_D4, md_sched_a(state)) |
-    MD_ENC(MD_D5, SFC_DEC(state, SFC_START));
+    schedule[0] = md_sched0(state);
+    schedule[1] = md_sched1(state);
+    schedule[2] = md_sched2(state);
+    schedule[3] = md_sched3(state);
+    schedule[4] = md_sched4(state);
+    schedule[5] = md_sched5(state);
+    schedule[6] = md_sched6(state);
+    schedule[7] = md_sched7(state);
 }
 
-static uint8_t
-md_sched6(uint16_t state)
+static void md_init(void)
 {
-  return
-    MD_ENC(MD_D0, md_sched_z(state)) |
-    MD_ENC(MD_D1, md_sched_y(state)) |
-    MD_ENC(MD_D2, md_sched_x(state)) |
-    MD_ENC(MD_D3, SFC_DEC(state, SFC_SELECT)) |
-    MD_ENC(MD_D4, md_sched_b(state)) |
-    MD_ENC(MD_D5, md_sched_c(state));
-}
+    uint16_t state;
 
-static uint8_t
-md_sched7(uint16_t state)
-{
-  return
-    MD_ENC(MD_D0, 1) |
-    MD_ENC(MD_D1, 1) |
-    MD_ENC(MD_D2, 1) |
-    MD_ENC(MD_D3, 1) |
-    MD_ENC(MD_D4, md_sched_a(state)) |
-    MD_ENC(MD_D5, SFC_DEC(state, SFC_START));
-}
+    /* Set data pins as outputs */
+    SET(MD_DDR, MD_D0DD);
+    SET(MD_DDR, MD_D1DD);
+    SET(MD_DDR, MD_D2DD);
+    SET(MD_DDR, MD_D3DD);
+    SET(MD_DDR, MD_D4DD);
+    SET(MD_DDR, MD_D5DD);
+    /* Set select pin as input */
+    CLEAR(MD_SELECT_DDR, MD_SELECT_DD);
 
-static void
-md_sched_update(uint16_t state)
-{
-  schedule[0] = md_sched0(state);
-  schedule[1] = md_sched1(state);
-  schedule[2] = md_sched2(state);
-  schedule[3] = md_sched3(state);
-  schedule[4] = md_sched4(state);
-  schedule[5] = md_sched5(state);
-  schedule[6] = md_sched6(state);
-  schedule[7] = md_sched7(state);
-}
+    /* Fill initial output schedule with idle buttons */
+    md_sched_update(0xFFFF);
 
-static void
-md_init(void)
-{
-  uint16_t state;
+    /* Switch mode based on buttons held on powerup */
+    state = sfc_read();
 
-  /* Set data pins as outputs */
-  SET(MD_DDR, MD_D0DD);
-  SET(MD_DDR, MD_D1DD);
-  SET(MD_DDR, MD_D2DD);
-  SET(MD_DDR, MD_D3DD);
-  SET(MD_DDR, MD_D4DD);
-  SET(MD_DDR, MD_D5DD);
-  /* Set select pin as input */
-  CLEAR(MD_SELECT_DDR, MD_SELECT_DD);
+    if (SFC_DEC(state, SFC_LEFT) == 0)
+    {
+        mode = MODE_6BUTTON_AB;
+    }
+    else if (SFC_DEC(state, SFC_RIGHT) == 0)
+    {
+        mode = MODE_6BUTTON_BC;
+    }
+    else
+    {
+        mode = MODE_6BUTTON_XC;
+    }
 
-  /* Fill initial output schedule with idle buttons */
-  md_sched_update(0xFFFF);
-
-  /* Switch mode based on buttons held on powerup */
-  state = sfc_read();
-
-  if (SFC_DEC(state, SFC_LEFT) == 0)
-  {
-    mode = MODE_6BUTTON_AB;
-  }
-  else if (SFC_DEC(state, SFC_RIGHT) == 0)
-  {
-    mode = MODE_6BUTTON_BC;
-  }
-  else
-  {
-    mode = MODE_6BUTTON_XC;
-  }
-
-  /* Start SFC read timer */
-  TCNT1 = 0;
-  TCCR1A = 0;
-  SET(TIMSK1, TOIE1);
+    /* Start SFC read timer */
+    TCNT1 = 0;
+    TCCR1A = 0;
+    SET(TIMSK1, TOIE1);
 }
 
 ISR(TIMER1_OVF_vect)
 {
-  /* Turn timer off until next select line change */
-  TCCR1B = 0;
-  /* Tell output loop to restart */
-  restart = 1;
-  /* Poll the controller */
-  md_sched_update(sfc_read());
+    /* Turn timer off until next select line change */
+    TCCR1B = 0;
+    /* Tell output loop to restart */
+    restart = 1;
+    /* Poll the controller */
+    md_sched_update(sfc_read());
 }
 
 /* Defer/start timer to poll controller */
-#define DEFER() \
-  do { TCNT1 = 0; TCCR1B = _BV(CS10); } while (0)
+#define DEFER()                                                                                    \
+    do                                                                                             \
+    {                                                                                              \
+        TCNT1 = 0;                                                                                 \
+        TCCR1B = _BV(CS10);                                                                        \
+    } while (0)
 
 /* Restart output schedule at phase n if indicated */
-#define RESTART(n) \
-  if (restart) \
-  { \
-    restart = 0; \
-    goto phase_##n; \
-  }
+#define RESTART(n)                                                                                 \
+    if (restart)                                                                                   \
+    {                                                                                              \
+        restart = 0;                                                                               \
+        goto phase_##n;                                                                            \
+    }
 
 /* 6-button output loop
  *
  * This function is manually unrolled to keep response times
- * to select line changes as low as possible (measured at around 
+ * to select line changes as low as possible (measured at around
  * 800 microseconds).
-*/
-static inline void
-loop6(void)
+ */
+static inline void loop6(void)
 {
-  register uint8_t next = schedule[0];
-  /* The first few phases have almost no timing slack.
-   * The busy loops must be as tight as possible or some games
-   * will not work. */
+    register uint8_t next = schedule[0];
+    /* The first few phases have almost no timing slack.
+     * The busy loops must be as tight as possible or some games
+     * will not work. */
 phase_0:
-  restart = 0;
-  if (!TEST(MD_SELECT_PINR, MD_SELECT))
-    goto phase_0;
-  MD_PORT = next;
-  next = schedule[1];
-  DEFER();
+    restart = 0;
+    if (!TEST(MD_SELECT_PINR, MD_SELECT))
+        goto phase_0;
+    MD_PORT = next;
+    next = schedule[1];
+    DEFER();
 phase_1:
-  restart = 0;
-  if (TEST(MD_SELECT_PINR, MD_SELECT))
-    goto phase_1;
-  MD_PORT = next;
-  next = schedule[2];
-  DEFER();
+    restart = 0;
+    if (TEST(MD_SELECT_PINR, MD_SELECT))
+        goto phase_1;
+    MD_PORT = next;
+    next = schedule[2];
+    DEFER();
 phase_2:
-  RESTART(0);
-  if (!TEST(MD_SELECT_PINR, MD_SELECT))
-    goto phase_2;
-  MD_PORT = next;
-  next = schedule[3];
-  DEFER();
+    RESTART(0);
+    if (!TEST(MD_SELECT_PINR, MD_SELECT))
+        goto phase_2;
+    MD_PORT = next;
+    next = schedule[3];
+    DEFER();
 phase_3:
-  RESTART(1);
-  if (TEST(MD_SELECT_PINR, MD_SELECT))
-    goto phase_3;
-  MD_PORT = next;
-  next = schedule[4];
-  DEFER();
+    RESTART(1);
+    if (TEST(MD_SELECT_PINR, MD_SELECT))
+        goto phase_3;
+    MD_PORT = next;
+    next = schedule[4];
+    DEFER();
 phase_4:
-  RESTART(0);
-  if (!TEST(MD_SELECT_PINR, MD_SELECT))
-    goto phase_4;
-  MD_PORT = next;
-  next = schedule[5];
-  DEFER();
+    RESTART(0);
+    if (!TEST(MD_SELECT_PINR, MD_SELECT))
+        goto phase_4;
+    MD_PORT = next;
+    next = schedule[5];
+    DEFER();
 phase_5:
-  RESTART(1);
-  if (TEST(MD_SELECT_PINR, MD_SELECT))
-    goto phase_5;
-  MD_PORT = next;
-  next = schedule[6];
-  DEFER();
+    RESTART(1);
+    if (TEST(MD_SELECT_PINR, MD_SELECT))
+        goto phase_5;
+    MD_PORT = next;
+    next = schedule[6];
+    DEFER();
 phase_6:
-  RESTART(0);
-  if (!TEST(MD_SELECT_PINR, MD_SELECT))
-    goto phase_6;
-  MD_PORT = next;
-  next = schedule[7];
-  DEFER();
+    RESTART(0);
+    if (!TEST(MD_SELECT_PINR, MD_SELECT))
+        goto phase_6;
+    MD_PORT = next;
+    next = schedule[7];
+    DEFER();
 phase_7:
-  RESTART(1);
-  if (TEST(MD_SELECT_PINR, MD_SELECT))
-    goto phase_7;
-  MD_PORT = next;
-  next = schedule[0];
-  DEFER();
-  goto phase_0;
+    RESTART(1);
+    if (TEST(MD_SELECT_PINR, MD_SELECT))
+        goto phase_7;
+    MD_PORT = next;
+    next = schedule[0];
+    DEFER();
+    goto phase_0;
 }
 
-void
-setup()
+void setup()
 {
-  sfc_init();
-  md_init();
-  sei();
+    sfc_init();
+    md_init();
+    sei();
 }
 
-void
-loop()
+void loop()
 {
-  switch (mode)
-  {
+    switch (mode)
+    {
     // FIXME: forced 3-button modes
     case MODE_6BUTTON_AB:
     case MODE_6BUTTON_BC:
     case MODE_6BUTTON_XC:
-      loop6();
-  }
+        loop6();
+    }
 }
 
 int main(void)
 {
-  setup();
-  loop();
+    setup();
+    loop();
 }
