@@ -335,91 +335,56 @@ ISR(TIMER1_OVF_vect)
     md_sched_update(sfc_read());
 }
 
-/* Defer/start timer to poll controller */
-#define DEFER()                                                                                    \
-    do                                                                                             \
-    {                                                                                              \
-        TCNT1 = 0;                                                                                 \
-        TCCR1B = _BV(CS10);                                                                        \
-    } while (0)
-
 /* Restart output schedule at phase n if indicated */
-#define RESTART(n)                                                                                 \
+#define RESTART_(n)                                                                                \
     if (restart)                                                                                   \
+        goto phase_##n;
+
+#define PHASE_(n, rs, inv)                                                                         \
+    phase_##n : rs;                                                                                \
+    if (inv)                                                                                       \
     {                                                                                              \
-        restart = 0;                                                                               \
-        goto phase_##n;                                                                            \
-    }
+        if (!TEST(MD_SELECT_PINR, MD_SELECT))                                                      \
+            goto phase_##n;                                                                        \
+    }                                                                                              \
+    else                                                                                           \
+    {                                                                                              \
+        if (TEST(MD_SELECT_PINR, MD_SELECT))                                                       \
+            goto phase_##n;                                                                        \
+    }                                                                                              \
+    MD_PORT = next;                                                                                \
+    next = schedule[(n + 1) % 8];                                                                  \
+    TCNT1 = 0;                                                                                     \
+    TCCR1B = _BV(CS10);
+
+#define PHASE_HIGH(n) PHASE_(n, RESTART_(0), true)
+#define PHASE_LOW(n) PHASE_(n, RESTART_(1), false)
+#define PHASE_ZERO() PHASE_(0, restart = 0, true)
+#define PHASE_ONE() PHASE_(1, restart = 0, false)
 
 /* 6-button output loop
  *
  * This function is manually unrolled to keep response times
  * to select line changes as low as possible (measured at around
- * 800 microseconds).
+ * 440 nanoseconds).
  */
 static inline void loop6(void)
 {
+    /* Keeping the next value to write to the output port ready in a register
+     * reduces the response time by an instruction.  Yes, it matters.
+     */
     register uint8_t next = schedule[0];
-    /* The first few phases have almost no timing slack.
-     * The busy loops must be as tight as possible or some games
-     * will not work. */
-phase_0:
-    restart = 0;
-    if (!TEST(MD_SELECT_PINR, MD_SELECT))
-        goto phase_0;
-    MD_PORT = next;
-    next = schedule[1];
-    DEFER();
-phase_1:
-    restart = 0;
-    if (TEST(MD_SELECT_PINR, MD_SELECT))
-        goto phase_1;
-    MD_PORT = next;
-    next = schedule[2];
-    DEFER();
-phase_2:
-    RESTART(0);
-    if (!TEST(MD_SELECT_PINR, MD_SELECT))
-        goto phase_2;
-    MD_PORT = next;
-    next = schedule[3];
-    DEFER();
-phase_3:
-    RESTART(1);
-    if (TEST(MD_SELECT_PINR, MD_SELECT))
-        goto phase_3;
-    MD_PORT = next;
-    next = schedule[4];
-    DEFER();
-phase_4:
-    RESTART(0);
-    if (!TEST(MD_SELECT_PINR, MD_SELECT))
-        goto phase_4;
-    MD_PORT = next;
-    next = schedule[5];
-    DEFER();
-phase_5:
-    RESTART(1);
-    if (TEST(MD_SELECT_PINR, MD_SELECT))
-        goto phase_5;
-    MD_PORT = next;
-    next = schedule[6];
-    DEFER();
-phase_6:
-    RESTART(0);
-    if (!TEST(MD_SELECT_PINR, MD_SELECT))
-        goto phase_6;
-    MD_PORT = next;
-    next = schedule[7];
-    DEFER();
-phase_7:
-    RESTART(1);
-    if (TEST(MD_SELECT_PINR, MD_SELECT))
-        goto phase_7;
-    MD_PORT = next;
-    next = schedule[0];
-    DEFER();
-    goto phase_0;
+    for (;;)
+    {
+        PHASE_ZERO();
+        PHASE_ONE();
+        PHASE_HIGH(2);
+        PHASE_LOW(3);
+        PHASE_HIGH(4);
+        PHASE_LOW(5);
+        PHASE_HIGH(6);
+        PHASE_LOW(7);
+    }
 }
 
 void setup()
