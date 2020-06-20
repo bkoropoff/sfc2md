@@ -1,9 +1,6 @@
-#include <avr/cpufunc.h>
 #include <avr/interrupt.h>
 #include <avr/io.h>
 #include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
 #include <util/delay.h>
 
 /* Helper macros */
