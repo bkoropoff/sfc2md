@@ -45,7 +45,7 @@
 #define SFC_R 4
 
 /* Decode SFC button (active low) */
-#define SFC_DEC(s, b) (((s) >> (b)) & 1)
+#define SFC_DEC(s, b) ((bool)(((s) >> (b)) & 1))
 
 /* Set up SFC/SNES pins */
 void sfc_init(void)
@@ -114,126 +114,71 @@ uint16_t sfc_read(void)
 
 /* Encode MD button value
  * (put it in correct location for writing to data port register) */
-#define MD_ENC(b, v) ((v) << (b))
+#define MD_ENC(b, v) (((uint8_t)(v)) << (b))
 
 /* Encode MD data lines */
 #define MD_DATA(d0, d1, d2, d3, d4, d5)                                                            \
     MD_ENC(MD_D0, d0) | MD_ENC(MD_D1, d1) | MD_ENC(MD_D2, d2) | MD_ENC(MD_D3, d3) |                \
         MD_ENC(MD_D4, d4) | MD_ENC(MD_D5, d5)
 
-/* Button mode enum */
+/* Button layout enum */
 static enum {
     /* 6 buttons, B and C are action and jump */
-    MODE_6BUTTON_BC,
+    LAYOUT_6BUTTON_BC,
     /* 6 buttons, A and B are action and jump */
-    MODE_6BUTTON_AB,
+    LAYOUT_6BUTTON_AB,
     /* Xenocrisis */
-    MODE_6BUTTON_XC
-} __attribute__((packed)) mode;
+    LAYOUT_6BUTTON_XC
+} __attribute__((packed)) layout;
 
 /* Data output schedule at each select line change */
 static uint8_t schedule[8];
 
-/* Return appropriate MD button values based on
- * button mode */
-static uint8_t sched_a(uint16_t state)
-{
-    switch (mode)
-    {
-    case MODE_6BUTTON_BC:
-        return SFC_DEC(state, SFC_A);
-    case MODE_6BUTTON_AB:
-        return SFC_DEC(state, SFC_Y);
-    case MODE_6BUTTON_XC:
-        return SFC_DEC(state, SFC_B);
-    }
-    return 1;
-}
-
-static uint8_t sched_b(uint16_t state)
-{
-    switch (mode)
-    {
-    case MODE_6BUTTON_BC:
-        return SFC_DEC(state, SFC_Y);
-    case MODE_6BUTTON_AB:
-        return SFC_DEC(state, SFC_B);
-    case MODE_6BUTTON_XC:
-        return SFC_DEC(state, SFC_A);
-    }
-    return 1;
-}
-
-static uint8_t sched_c(uint16_t state)
-{
-    switch (mode)
-    {
-    case MODE_6BUTTON_BC:
-        return SFC_DEC(state, SFC_B);
-    case MODE_6BUTTON_AB:
-        return SFC_DEC(state, SFC_A);
-    case MODE_6BUTTON_XC:
-        return SFC_DEC(state, SFC_R);
-    }
-    return 1;
-}
-
-static uint8_t sched_x(uint16_t state)
-{
-    switch (mode)
-    {
-    case MODE_6BUTTON_BC:
-        return SFC_DEC(state, SFC_L);
-    case MODE_6BUTTON_AB:
-        return SFC_DEC(state, SFC_L);
-    case MODE_6BUTTON_XC:
-        return SFC_DEC(state, SFC_Y);
-    }
-    return 1;
-}
-
-static uint8_t sched_y(uint16_t state)
-{
-    switch (mode)
-    {
-    case MODE_6BUTTON_BC:
-        return SFC_DEC(state, SFC_X);
-    case MODE_6BUTTON_AB:
-        return SFC_DEC(state, SFC_X);
-    case MODE_6BUTTON_XC:
-        return SFC_DEC(state, SFC_X);
-    }
-    return 1;
-}
-
-static uint8_t sched_z(uint16_t state)
-{
-    switch (mode)
-    {
-    case MODE_6BUTTON_BC:
-        return SFC_DEC(state, SFC_R);
-    case MODE_6BUTTON_AB:
-        return SFC_DEC(state, SFC_R);
-    case MODE_6BUTTON_XC:
-        return SFC_DEC(state, SFC_L);
-    }
-    return 1;
-}
-
 static void sched_update(uint16_t state)
 {
-    uint8_t a = sched_a(state);
-    uint8_t b = sched_b(state);
-    uint8_t c = sched_c(state);
-    uint8_t x = sched_x(state);
-    uint8_t y = sched_y(state);
-    uint8_t z = sched_z(state);
-    uint8_t up = SFC_DEC(state, SFC_UP);
-    uint8_t down = SFC_DEC(state, SFC_DOWN);
-    uint8_t left = SFC_DEC(state, SFC_LEFT);
-    uint8_t right = SFC_DEC(state, SFC_RIGHT);
-    uint8_t start = SFC_DEC(state, SFC_START);
-    uint8_t mode = SFC_DEC(state, SFC_SELECT);
+    bool a;
+    bool b;
+    bool c;
+    bool x;
+    bool y;
+    bool z;
+    bool up = SFC_DEC(state, SFC_UP);
+    bool down = SFC_DEC(state, SFC_DOWN);
+    bool left = SFC_DEC(state, SFC_LEFT);
+    bool right = SFC_DEC(state, SFC_RIGHT);
+    bool start = SFC_DEC(state, SFC_START);
+    bool mode = SFC_DEC(state, SFC_SELECT);
+
+    /* Choose button mappings based on layout */
+    switch (layout)
+    {
+    case LAYOUT_6BUTTON_BC:
+        a = SFC_DEC(state, SFC_A);
+        b = SFC_DEC(state, SFC_Y);
+        c = SFC_DEC(state, SFC_B);
+        x = SFC_DEC(state, SFC_L);
+        y = SFC_DEC(state, SFC_X);
+        z = SFC_DEC(state, SFC_R);
+        break;
+    case LAYOUT_6BUTTON_AB:
+        a = SFC_DEC(state, SFC_Y);
+        b = SFC_DEC(state, SFC_B);
+        c = SFC_DEC(state, SFC_A);
+        x = SFC_DEC(state, SFC_L);
+        y = SFC_DEC(state, SFC_X);
+        z = SFC_DEC(state, SFC_R);
+        break;
+    case LAYOUT_6BUTTON_XC:
+        a = SFC_DEC(state, SFC_B);
+        b = SFC_DEC(state, SFC_A);
+        c = SFC_DEC(state, SFC_R);
+        x = SFC_DEC(state, SFC_Y);
+        y = SFC_DEC(state, SFC_X);
+        z = SFC_DEC(state, SFC_L);
+        break;
+    default:
+        __builtin_unreachable();
+    }
 
     /*
      * Data output schedule.
@@ -274,20 +219,20 @@ static void md_init(void)
     /* Fill initial output schedule with idle buttons */
     sched_update(0xFFFF);
 
-    /* Switch mode based on buttons held on powerup */
+    /* Switch layout based on buttons held on powerup */
     state = sfc_read();
 
     if (SFC_DEC(state, SFC_LEFT) == 0)
     {
-        mode = MODE_6BUTTON_AB;
+        layout = LAYOUT_6BUTTON_AB;
     }
     else if (SFC_DEC(state, SFC_RIGHT) == 0)
     {
-        mode = MODE_6BUTTON_BC;
+        layout = LAYOUT_6BUTTON_BC;
     }
     else
     {
-        mode = MODE_6BUTTON_XC;
+        layout = LAYOUT_6BUTTON_XC;
     }
 
     /* Initialize interrupt timer */
