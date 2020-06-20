@@ -12,7 +12,7 @@ upload: sfc2md.hex
 	avrdude -v -patmega32u4 -cavr109 -P/dev/ttyACM0 -b57600 -D -Uflash:w:$<:i
 
 clean:
-	rm -f $(OBJECTS) sfc2md.hex sfc2md
+	rm -f $(OBJECTS) sfc2md.hex sfc2md sfc2md.s
 
 sfc2md.hex: sfc2md
 	avr-objcopy -O ihex -R .eeprom $< $@
