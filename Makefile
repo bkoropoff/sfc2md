@@ -6,6 +6,8 @@ HEADERS =
 
 all: sfc2md.hex
 
+asm: sfc2md.s
+
 upload: sfc2md.hex
 	avrdude -v -patmega32u4 -cavr109 -P/dev/ttyACM0 -b57600 -D -Uflash:w:$<:i
 
@@ -18,9 +20,12 @@ sfc2md.hex: sfc2md
 sfc2md: $(OBJECTS)
 	avr-gcc $(CFLAGS) -o $@ $(OBJECTS)
 
+.c.s:
+	avr-gcc $(CFLAGS) -c -S -o $@ $<
+
 .c.o:
 	avr-gcc $(CFLAGS) -c -o $@ $<
 
 $(OBJECTS): $(HEADERS)
 
-.PHONY: upload clean
+.PHONY: upload clean asm
