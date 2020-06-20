@@ -116,6 +116,11 @@ uint16_t sfc_read(void)
  * (put it in correct location for writing to data port register) */
 #define MD_ENC(b, v) ((v) << (b))
 
+/* Encode MD data lines */
+#define MD_DATA(d0, d1, d2, d3, d4, d5)                                                            \
+    MD_ENC(MD_D0, d0) | MD_ENC(MD_D1, d1) | MD_ENC(MD_D2, d2) | MD_ENC(MD_D3, d3) |                \
+        MD_ENC(MD_D4, d4) | MD_ENC(MD_D5, d5)
+
 /* Button mode enum */
 static enum {
     /* 6 buttons, B and C are action and jump */
@@ -128,15 +133,10 @@ static enum {
 
 /* Data output schedule at each select line change */
 static uint8_t schedule[8];
-/* Indication from timer to restart output schedule.
- * This skips 6-button phases when the game only
- * polls us as a 3-button controller. */
-// static uint8_t volatile restart;
-uint8_t register restart asm("r5");
 
 /* Return appropriate MD button values based on
  * button mode */
-static inline uint8_t md_sched_a(uint16_t state)
+static uint8_t sched_a(uint16_t state)
 {
     switch (mode)
     {
@@ -150,7 +150,7 @@ static inline uint8_t md_sched_a(uint16_t state)
     return 1;
 }
 
-static inline uint8_t md_sched_b(uint16_t state)
+static uint8_t sched_b(uint16_t state)
 {
     switch (mode)
     {
@@ -164,7 +164,7 @@ static inline uint8_t md_sched_b(uint16_t state)
     return 1;
 }
 
-static inline uint8_t md_sched_c(uint16_t state)
+static uint8_t sched_c(uint16_t state)
 {
     switch (mode)
     {
@@ -178,7 +178,7 @@ static inline uint8_t md_sched_c(uint16_t state)
     return 1;
 }
 
-static inline uint8_t md_sched_x(uint16_t state)
+static uint8_t sched_x(uint16_t state)
 {
     switch (mode)
     {
@@ -192,7 +192,7 @@ static inline uint8_t md_sched_x(uint16_t state)
     return 1;
 }
 
-static inline uint8_t md_sched_y(uint16_t state)
+static uint8_t sched_y(uint16_t state)
 {
     switch (mode)
     {
@@ -206,7 +206,7 @@ static inline uint8_t md_sched_y(uint16_t state)
     return 1;
 }
 
-static inline uint8_t md_sched_z(uint16_t state)
+static uint8_t sched_z(uint16_t state)
 {
     switch (mode)
     {
@@ -220,70 +220,41 @@ static inline uint8_t md_sched_z(uint16_t state)
     return 1;
 }
 
-/*
- * Data output schedule.
- *
- * Games typically keep the select line high when idle and
- * issue negative pulses when polling the controller.  The
- * first two downward pulses act like the ordinary multiplexer
- * in 3-button controller.  On the 3rd negative edge, D0-D4
- * are set low to indicate that we are a 6-button controller.
- * On the subsequent positive edge, D0-D4 are set to the
- * state of the extra buttons.  On the 4th negative edge,
- * D0-D4 are set high.  Most games issue this pulse but ignore
- * the output, but Xenocrisis actually checks it. The schedule
- * then repeats.
- */
-
-static uint8_t md_sched0(uint16_t state)
+static void sched_update(uint16_t state)
 {
-    return MD_ENC(MD_D0, SFC_DEC(state, SFC_UP)) | MD_ENC(MD_D1, SFC_DEC(state, SFC_DOWN)) |
-           MD_ENC(MD_D2, SFC_DEC(state, SFC_LEFT)) | MD_ENC(MD_D3, SFC_DEC(state, SFC_RIGHT)) |
-           MD_ENC(MD_D4, md_sched_b(state)) | MD_ENC(MD_D5, md_sched_c(state));
-}
+    uint8_t a = sched_a(state);
+    uint8_t b = sched_b(state);
+    uint8_t c = sched_c(state);
+    uint8_t x = sched_x(state);
+    uint8_t y = sched_y(state);
+    uint8_t z = sched_z(state);
+    uint8_t up = SFC_DEC(state, SFC_UP);
+    uint8_t down = SFC_DEC(state, SFC_DOWN);
+    uint8_t left = SFC_DEC(state, SFC_LEFT);
+    uint8_t right = SFC_DEC(state, SFC_RIGHT);
+    uint8_t start = SFC_DEC(state, SFC_START);
+    uint8_t mode = SFC_DEC(state, SFC_SELECT);
 
-static uint8_t md_sched1(uint16_t state)
-{
-    return MD_ENC(MD_D0, SFC_DEC(state, SFC_UP)) | MD_ENC(MD_D1, SFC_DEC(state, SFC_DOWN)) |
-           MD_ENC(MD_D2, 0) | MD_ENC(MD_D3, 0) | MD_ENC(MD_D4, md_sched_a(state)) |
-           MD_ENC(MD_D5, SFC_DEC(state, SFC_START));
-}
-
-static uint8_t md_sched2(uint16_t state) { return md_sched0(state); }
-
-static uint8_t md_sched3(uint16_t state) { return md_sched1(state); }
-
-static uint8_t md_sched4(uint16_t state) { return md_sched0(state); }
-
-static uint8_t md_sched5(uint16_t state)
-{
-    return MD_ENC(MD_D0, 0) | MD_ENC(MD_D1, 0) | MD_ENC(MD_D2, 0) | MD_ENC(MD_D3, 0) |
-           MD_ENC(MD_D4, md_sched_a(state)) | MD_ENC(MD_D5, SFC_DEC(state, SFC_START));
-}
-
-static uint8_t md_sched6(uint16_t state)
-{
-    return MD_ENC(MD_D0, md_sched_z(state)) | MD_ENC(MD_D1, md_sched_y(state)) |
-           MD_ENC(MD_D2, md_sched_x(state)) | MD_ENC(MD_D3, SFC_DEC(state, SFC_SELECT)) |
-           MD_ENC(MD_D4, md_sched_b(state)) | MD_ENC(MD_D5, md_sched_c(state));
-}
-
-static uint8_t md_sched7(uint16_t state)
-{
-    return MD_ENC(MD_D0, 1) | MD_ENC(MD_D1, 1) | MD_ENC(MD_D2, 1) | MD_ENC(MD_D3, 1) |
-           MD_ENC(MD_D4, md_sched_a(state)) | MD_ENC(MD_D5, SFC_DEC(state, SFC_START));
-}
-
-static void md_sched_update(uint16_t state)
-{
-    schedule[0] = md_sched0(state);
-    schedule[1] = md_sched1(state);
-    schedule[2] = md_sched2(state);
-    schedule[3] = md_sched3(state);
-    schedule[4] = md_sched4(state);
-    schedule[5] = md_sched5(state);
-    schedule[6] = md_sched6(state);
-    schedule[7] = md_sched7(state);
+    /*
+     * Data output schedule.
+     *
+     * Games typically keep the select line high when idle and issue negative
+     * pulses when polling the controller.  The first two downward pulses act
+     * like the ordinary multiplexer in a 3-button controller.  On the 3rd
+     * negative edge, D0-D4 are set low to indicate that we are a 6-button
+     * controller.  On the subsequent positive edge, D0-D4 are set to the state
+     * of the extra buttons.  On the 4th negative edge, D0-D4 are set high.
+     * Most games issue this pulse but ignore the output, but Xenocrisis
+     * actually checks it. The schedule then repeats.
+     */
+    schedule[0] = MD_DATA(up, down, left, right, b, c);
+    schedule[1] = MD_DATA(up, down, 0, 0, a, start);
+    schedule[2] = schedule[0];
+    schedule[3] = schedule[1];
+    schedule[4] = schedule[0];
+    schedule[5] = MD_DATA(0, 0, 0, 0, a, start);
+    schedule[6] = MD_DATA(z, y, x, mode, b, c);
+    schedule[7] = MD_DATA(1, 1, 1, 1, a, start);
 }
 
 static void md_init(void)
@@ -301,7 +272,7 @@ static void md_init(void)
     CLEAR(MD_SELECT_DDR, MD_SELECT_DD);
 
     /* Fill initial output schedule with idle buttons */
-    md_sched_update(0xFFFF);
+    sched_update(0xFFFF);
 
     /* Switch mode based on buttons held on powerup */
     state = sfc_read();
@@ -319,91 +290,88 @@ static void md_init(void)
         mode = MODE_6BUTTON_XC;
     }
 
-    /* Start SFC read timer */
+    /* Initialize interrupt timer */
     TCNT1 = 0;
     TCCR1A = 0;
     SET(TIMSK1, TOIE1);
 }
 
-ISR(TIMER1_OVF_vect)
+ISR(TIMER1_OVF_vect, ISR_NAKED)
 {
-    /* Turn timer off until next select line change */
-    TCCR1B = 0;
-    /* Tell output loop to restart */
-    restart = 1;
-    /* Poll the controller */
-    md_sched_update(sfc_read());
+    static uint8_t tmp;
+    /* Cause the loop to jump to the interrupted label
+     * by overwriting the interrupt return address */
+    asm volatile("sts %0, r31\n\t"
+                 "pop r31\n\t"
+                 "pop r31\n\t"
+                 "ldi r31, lo8(gs(interrupted))\n\t"
+                 "push r31\n\t"
+                 "ldi r31, hi8(gs(interrupted))\n\t"
+                 "push r31\n\t"
+                 "lds r31, %0\n\t"
+                 "reti\n\t"
+                 : "=m"(tmp));
 }
 
-/* Restart output schedule at phase n if indicated */
-#define RESTART_(n)                                                                                \
-    if (restart)                                                                                   \
-        goto phase_##n;
-
-#define PHASE_(n, rs, inv)                                                                         \
-    phase_##n : rs;                                                                                \
-    if (inv)                                                                                       \
+#define PHASE(n)                                                                                   \
+    next = schedule[n];                                                                            \
+    /* Force memory load *NOW*, prior to busy wait */                                              \
+    asm volatile("" : : "r"(next));                                                                \
+    /* Busy wait for select line to change to correct level for phase */                           \
+    if (n % 2)                                                                                     \
     {                                                                                              \
-        if (!TEST(MD_SELECT_PINR, MD_SELECT))                                                      \
-            goto phase_##n;                                                                        \
+        while (TEST(MD_SELECT_PINR, MD_SELECT))                                                    \
+            ;                                                                                      \
     }                                                                                              \
     else                                                                                           \
     {                                                                                              \
-        if (TEST(MD_SELECT_PINR, MD_SELECT))                                                       \
-            goto phase_##n;                                                                        \
+        while (!TEST(MD_SELECT_PINR, MD_SELECT))                                                   \
+            ;                                                                                      \
     }                                                                                              \
+    /* Update output */                                                                            \
     MD_PORT = next;                                                                                \
-    next = schedule[(n + 1) % 8];                                                                  \
-    TCNT1 = 0;                                                                                     \
-    TCCR1B = _BV(CS10);
+    /* If we have passed first negative edge, start or restart interrupt timer */                  \
+    if (n > 0)                                                                                     \
+    {                                                                                              \
+        TCNT1 = 0;                                                                                 \
+        TCCR1B = _BV(CS10);                                                                        \
+    }
 
-#define PHASE_HIGH(n) PHASE_(n, RESTART_(0), true)
-#define PHASE_LOW(n) PHASE_(n, RESTART_(1), false)
-#define PHASE_ZERO() PHASE_(0, restart = 0, true)
-#define PHASE_ONE() PHASE_(1, restart = 0, false)
-
-/* 6-button output loop
+/* Main loop
  *
- * This function is manually unrolled to keep response times
- * to select line changes as low as possible (measured at around
- * 440 nanoseconds).
+ * This function is manually unrolled to keep response times to select line
+ * changes as low as possible (measured at around 500 nanoseconds).
  */
-static inline void loop6(void)
+static void loop(void)
 {
     /* Keeping the next value to write to the output port ready in a register
      * reduces the response time by an instruction.  Yes, it matters.
      */
-    register uint8_t next = schedule[0];
+    register uint8_t next;
+
+    asm volatile("interrupted:");
+    /* Stop interrupt timer and poll controller */
+    TCCR1B = 0;
+    sched_update(sfc_read());
+
     for (;;)
     {
-        PHASE_ZERO();
-        PHASE_ONE();
-        PHASE_HIGH(2);
-        PHASE_LOW(3);
-        PHASE_HIGH(4);
-        PHASE_LOW(5);
-        PHASE_HIGH(6);
-        PHASE_LOW(7);
+        PHASE(0);
+        PHASE(1);
+        PHASE(2);
+        PHASE(3);
+        PHASE(4);
+        PHASE(5);
+        PHASE(6);
+        PHASE(7);
     }
 }
 
-void setup()
+static void setup()
 {
     sfc_init();
     md_init();
     sei();
-}
-
-void loop()
-{
-    switch (mode)
-    {
-    // FIXME: forced 3-button modes
-    case MODE_6BUTTON_AB:
-    case MODE_6BUTTON_BC:
-    case MODE_6BUTTON_XC:
-        loop6();
-    }
 }
 
 int main(void)
