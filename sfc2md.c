@@ -112,8 +112,10 @@ uint16_t sfc_read(void)
 #define MD_SELECT PINB6
 #define MD_SELECT_PCINT PCINT6
 
-/* Encode MD button value
- * (put it in correct location for writing to data port register) */
+/*
+ * Encode MD button (put it in correct location for writing to data port
+ * register).  Active low
+ */
 #define MD_ENC(b, v) (((uint8_t)(v)) << (b))
 
 /* Encode MD data lines */
@@ -127,11 +129,15 @@ static enum {
     LAYOUT_6BUTTON_BC,
     /* 6 buttons, A and B are action and jump */
     LAYOUT_6BUTTON_AB,
-    /* Xenocrisis */
+    /* Xeno Crisis */
     LAYOUT_6BUTTON_XC
 } __attribute__((packed)) layout;
 
-/* Data output schedule at each select line change */
+/*
+ * Data output schedule at each select line change.  schedule[0] is output when
+ * the select line goes high (typical idle state), schedule[1] when the select
+ * line then goes low, and so on.
+ */
 static uint8_t schedule[8];
 
 static void sched_update(uint16_t state)
@@ -185,12 +191,20 @@ static void sched_update(uint16_t state)
      *
      * Games typically keep the select line high when idle and issue negative
      * pulses when polling the controller.  The first two downward pulses act
-     * like the ordinary multiplexer in a 3-button controller.  On the 3rd
-     * negative edge, D0-D4 are set low to indicate that we are a 6-button
+     * like the ordinary multiplexer in a 3-button controller, simply choosing
+     * which set of signals are routed to the data lines.  On the 3rd negative
+     * edge, D0-D4 are driven low to indicate that we are a 6-button
      * controller.  On the subsequent positive edge, D0-D4 are set to the state
      * of the extra buttons.  On the 4th negative edge, D0-D4 are set high.
-     * Most games issue this pulse but ignore the output, but Xenocrisis
-     * actually checks it. The schedule then repeats.
+     * Most games seem to issue this pulse but ignore the output.  Xeno Crisis
+     * actually checks it and won't recognize the extra buttons without the
+     * correct response.  Streets of Rage 3 does not issues the 4th pulse.
+     * Games written only for 3-button controllers issue only one pulse.
+     *
+     * The schedule repeats after the 4th complete pulse, or if the game stops
+     * changing the select line for an extended period of time (over a
+     * millisecond or so), which is what permits 3-button backward
+     * compatibility.
      */
     schedule[0] = MD_DATA(up, down, left, right, b, c);
     schedule[1] = MD_DATA(up, down, 0, 0, a, start);
@@ -216,24 +230,18 @@ static void md_init(void)
     /* Set select pin as input */
     CLEAR(MD_SELECT_DDR, MD_SELECT_DD);
 
-    /* Fill initial output schedule with idle buttons */
+    /* Fill initial output schedule with unpressed buttons */
     sched_update(0xFFFF);
 
     /* Switch layout based on buttons held on powerup */
     state = sfc_read();
 
     if (SFC_DEC(state, SFC_LEFT) == 0)
-    {
         layout = LAYOUT_6BUTTON_AB;
-    }
     else if (SFC_DEC(state, SFC_RIGHT) == 0)
-    {
         layout = LAYOUT_6BUTTON_BC;
-    }
     else
-    {
         layout = LAYOUT_6BUTTON_XC;
-    }
 
     /* Initialize interrupt timer */
     TCNT1 = 0;
@@ -258,42 +266,57 @@ ISR(TIMER1_OVF_vect, ISR_NAKED)
                  : "=m"(tmp));
 }
 
+/*
+ * Macro to handle one phase (output for a particular select line edge) in the
+ * main loop.
+ */
 #define PHASE(n)                                                                                   \
-    next = schedule[n];                                                                            \
-    /* Force memory load *NOW*, prior to busy wait */                                              \
-    asm volatile("" : : "r"(next));                                                                \
-    /* Busy wait for select line to change to correct level for phase */                           \
-    if (n % 2)                                                                                     \
+    do                                                                                             \
     {                                                                                              \
-        while (TEST(MD_SELECT_PINR, MD_SELECT))                                                    \
-            ;                                                                                      \
-    }                                                                                              \
-    else                                                                                           \
-    {                                                                                              \
-        while (!TEST(MD_SELECT_PINR, MD_SELECT))                                                   \
-            ;                                                                                      \
-    }                                                                                              \
-    /* Update output */                                                                            \
-    MD_PORT = next;                                                                                \
-    /* If we have passed first negative edge, start or restart interrupt timer */                  \
-    if (n > 0)                                                                                     \
-    {                                                                                              \
-        TCNT1 = 0;                                                                                 \
-        TCCR1B = _BV(CS10);                                                                        \
-    }
+        next = schedule[n];                                                                        \
+        /* Force memory load *NOW*, prior to busy wait */                                          \
+        asm volatile("" : : "r"(next));                                                            \
+        /* Busy wait for select line to change to correct level for phase */                       \
+        if (n % 2)                                                                                 \
+        {                                                                                          \
+            while (TEST(MD_SELECT_PINR, MD_SELECT))                                                \
+                ;                                                                                  \
+        }                                                                                          \
+        else                                                                                       \
+        {                                                                                          \
+            while (!TEST(MD_SELECT_PINR, MD_SELECT))                                               \
+                ;                                                                                  \
+        }                                                                                          \
+        /* Update output */                                                                        \
+        MD_PORT = next;                                                                            \
+        /*                                                                                         \
+         * If we have passed the first negative edge, start or restart interrupt timer.            \
+         * When it fires, indicating the game is done talking to us, we reset                      \
+         * back to phase 0 and poll the controller.                                                \
+         */                                                                                        \
+        if (n > 0)                                                                                 \
+        {                                                                                          \
+            TCNT1 = 0;                                                                             \
+            /* Timer will fire in about 4 milliseconds */                                          \
+            TCCR1B = _BV(CS10);                                                                    \
+        }                                                                                          \
+    } while (0)
 
-/* Main loop
+/*
+ * Main loop
  *
  * This function is manually unrolled to keep response times to select line
  * changes as low as possible (measured at around 500 nanoseconds).
  */
 static void loop(void)
 {
-    /* Keeping the next value to write to the output port ready in a register
+    /*
+     * Keeping the next value to write to the output port ready in a register
      * reduces the response time by an instruction.  Yes, it matters.
      */
     register uint8_t next;
 
+    /* Interrupt restarts us here */
     asm volatile("interrupted:");
     /* Stop interrupt timer and poll controller */
     TCCR1B = 0;
