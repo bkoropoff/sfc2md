@@ -45,7 +45,7 @@
 #define SFC_DEC(s, b) ((bool)(((s) >> (b)) & 1))
 
 /* Set up SFC/SNES pins */
-void sfc_init(void)
+static void sfc_init(void)
 {
     /* Latch and clock are outputs */
     SET(SFC_DDR, SFC_LATCHDD);
@@ -57,7 +57,7 @@ void sfc_init(void)
 }
 
 /* Read controller */
-uint16_t sfc_read(void)
+static uint16_t sfc_read(void)
 {
     uint8_t i;
     uint16_t state = 0;
