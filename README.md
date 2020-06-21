@@ -31,18 +31,65 @@ The adapter introduces about 1.67 milliseconds of input latency on NTSC region
 (60 Hz) games.  It introduces 5 milliseconds on PAL region (50 Hz) games -- not
 ideal, but so is playing Mega Drive games at 50 Hz.
 
-# Building
+# Building the Code
 
 A simple `Makefile` is provided.  The `upload` target will program an
 ATmega32U4 on Linux with `avrdude`.  You may need to modify the file for your
-MCU and OS.
+MCU, OS, and programmer.
 
-# Requirements
+# Hardware and Requirements
 
-It was prototyped on an ATmega32U4 board.  The MCU needs to run at 16MHz or
-more to keep up.  Pin assignments may need to be changed depending on your MCU
-and wiring.
+The prototype uses an ATmega32U4 board and some spare controller/extension cables
+spliced together.  I used Dupont connectors and put it in an old AC adapter housing
+to keep things a bit more clean.
 
-**TO DO**: describe how to build hardware.  For now, an enterprising individual
-can look at the pin assignments in the code and pinout diagrams for the console
-controller ports.
+![Adapter photograph](adapter.jpg)
+
+The MCU needs to run at 16MHz or more to keep up with the Genesis/MD.  Pin
+assignments may need to be changed depending on your MCU and wiring.
+
+The best way to get the appropriate plugs is to buy extension cables and cut
+them up.  You will want to wire the plugs to your MCU as follows:
+
+## Genesis/Mega Drive connector (DE-9)
+
+Looking into the connector on the controller cable (be sure not to get this
+reversed!):
+
+![Genesis (DE-9) connector](de9.png)
+
+| Pin | Name   |
+|-----|--------|
+| 1   | D0     |
+| 2   | D1     |
+| 3   | D2     |
+| 4   | D3     |
+| 5   | +5V    |
+| 6   | D4     |
+| 7   | Select |
+| 8   | GND    |
+| 9   | D5     |
+
+## SNES/Super Famicom connector (proprietary)
+
+The shape of the connector makes orientation unambiguous, thankfully:
+
+![SNES connector](sfcplug.png)
+
+| Pin | Name   |
+|-----|--------|
+| 1   | GND    |
+| 2   | Unused |
+| 3   | Unused |
+| 4   | Data   |
+| 5   | Latch  |
+| 6   | Clock  |
+| 7   | +5V    |
+
+## MCU
+
+The default pin assignments using the same names as in the above tables are
+found prominently in the [source code](sfc2md.c).  If you aren't using the same
+board that I am, you'll most likely have to change them to match your wiring.
+All Genesis/MD data lines (D0-D5) must be on the same port register so that
+they can be updated in a single instruction.
