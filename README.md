@@ -93,3 +93,48 @@ found prominently in the [source code](sfc2md.c).  If you aren't using the same
 board that I am, you'll most likely have to change them to match your wiring.
 All Genesis/MD data lines (D0-D5) must be on the same port register so that
 they can be updated in a single instruction.
+
+I noticed substantial crosstalk during output switching on my oscilloscope, so
+you may want to put small resistors on the Genesis/MD data lines (D0-D5) to
+limit slew rate.  It worked fine regardless.
+
+# Implementation Notes
+
+The implementation is highly optimized in order to keep up with the stringent
+timing requirements of Genesis/MD controller polling.  The original 3-button
+controller is simply a high-speed CMOS multiplexer on the end of a cable, so it
+can be expected to switch outputs within 10 nanoseconds or so.  Many games are
+therefore very aggressive about reading the outputs after toggling the select
+line.  My testing suggests that response times need to be kept under 700
+nanoseconds or so to prevent games from reading bogus inputs.
+
+To respond as quickly as possible, the select line is polled using busy waits
+in a manually unrolled main loop.  The generated assembly was inspected
+to ensure that each busy wait consists of a two-instruction loop followed by
+an immediate write to the output port register once the select line toggles.
+
+The 6-button controller exposes additional buttons by a "handshake" with the
+game where it polls the controller extra times each frame.  After two polling
+cycles within a short time window, the third negative edge of the select line
+causes the controller to drive D0-D4 low.  This is normally impossible (it
+would indicate all 4 cardinal directions on the directional pad being pressed
+simultaneously), so it identifies the controller as being 6-button to the game.
+On the following positive edge, the additional button states are output on
+D0-D4.
+
+To maintain backward compatibility with games expecting 3-button controllers,
+the 6-button controller reverts to 3-button behavior if the game does not
+complete all polling cycles within a millisecond or so.  This program uses
+a timer interrupt to accomplish the same behavior.  To prevent slowing down
+the busy waits with tests for a timeout flag, the interrupt instead overwrites
+the return address on the stack so that the main loop immediately jumps to
+a special label upon return, resetting the loop.  This is also when polling
+of the SNES/SFC controller is performed.  The timeout is tuned so that the
+SNES/SFC controller is polled as close as possible to the game polling the
+adapter, minimizing input latency.
+
+The SNES/SFC controller is essentially a 16-bit shift register on the end of a
+cable, so polling it consists of issuing a pulse to latch the inputs into the
+register, followed by clocking out the button states one at a time.  The
+timings used are approximately those used by a real console, so controller
+compatibility should be high.
