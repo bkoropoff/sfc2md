@@ -282,7 +282,7 @@ ISR(TIMER1_OVF_vect, ISR_NAKED)
  * select line (in microseconds).  We want to be aggressive so that we poll the
  * controller as close as possible to when the game polls us, but without
  * overlapping (which leaves us unable to respond).  At 60 Hz framerate, this
- * value gives 1.67 milliseconds of input latency.  At 50 Hz, it gives 4
+ * value gives 1.67 milliseconds of input latency.  At 50 Hz, it gives 5
  * milliseconds (Europe gets screwed again).  This is as aggressive as we can
  * be, as based on testing there is substantial polling jitter in some games.
  * */
