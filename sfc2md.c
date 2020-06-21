@@ -107,7 +107,6 @@ static uint16_t sfc_read(void)
 #define MD_SELECT_DDR DDRB
 #define MD_SELECT_DD DDB6
 #define MD_SELECT PINB6
-#define MD_SELECT_PCINT PCINT6
 
 /*
  * Encode MD button (put it in correct location for writing to data port
