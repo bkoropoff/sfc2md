@@ -122,12 +122,14 @@ static uint16_t sfc_read(void)
 
 /* Button layout enum */
 static enum {
-    /* 6 buttons, B and C are action and jump */
-    LAYOUT_6BUTTON_BC,
-    /* 6 buttons, A and B are action and jump */
-    LAYOUT_6BUTTON_AB,
+    /* B and C are action and jump */
+    LAYOUT_BC,
+    /* A and B are action and jump */
+    LAYOUT_AB,
     /* Xeno Crisis */
-    LAYOUT_6BUTTON_XC
+    LAYOUT_XC,
+    /* Bitflag to suppress extra buttons */
+    LAYOUT_3BUTTON = 0x80
 } __attribute__((packed)) layout;
 
 /*
@@ -153,9 +155,9 @@ static void sched_update(uint16_t state)
     bool mode = SFC_DEC(state, SFC_SELECT);
 
     /* Choose button mappings based on layout */
-    switch (layout)
+    switch (layout & ~LAYOUT_3BUTTON)
     {
-    case LAYOUT_6BUTTON_BC:
+    case LAYOUT_BC:
         a = SFC_DEC(state, SFC_A);
         b = SFC_DEC(state, SFC_Y);
         c = SFC_DEC(state, SFC_B);
@@ -163,7 +165,7 @@ static void sched_update(uint16_t state)
         y = SFC_DEC(state, SFC_X);
         z = SFC_DEC(state, SFC_R);
         break;
-    case LAYOUT_6BUTTON_AB:
+    case LAYOUT_AB:
         a = SFC_DEC(state, SFC_Y);
         b = SFC_DEC(state, SFC_B);
         c = SFC_DEC(state, SFC_A);
@@ -171,7 +173,7 @@ static void sched_update(uint16_t state)
         y = SFC_DEC(state, SFC_X);
         z = SFC_DEC(state, SFC_R);
         break;
-    case LAYOUT_6BUTTON_XC:
+    case LAYOUT_XC:
         a = SFC_DEC(state, SFC_B);
         b = SFC_DEC(state, SFC_A);
         c = SFC_DEC(state, SFC_R);
@@ -195,22 +197,31 @@ static void sched_update(uint16_t state)
      * of the extra buttons.  On the 4th negative edge, D0-D4 are set high.
      * Most games seem to issue this pulse but ignore the output.  Xeno Crisis
      * actually checks it and won't recognize the extra buttons without the
-     * correct response.  Streets of Rage 3 does not issues the 4th pulse.
+     * correct response.  Streets of Rage 3 does not issue the 4th pulse.
      * Games written only for 3-button controllers issue only one pulse.
      *
      * The schedule repeats after the 4th complete pulse, or if the game stops
      * changing the select line for an extended period of time (over a
-     * millisecond or so), which is what permits 3-button backward
-     * compatibility.
+     * millisecond or so on a real controller), which is what permits 3-button
+     * backward compatibility.
      */
     schedule[0] = MD_DATA(up, down, left, right, b, c);
     schedule[1] = MD_DATA(up, down, 0, 0, a, start);
     schedule[2] = schedule[0];
     schedule[3] = schedule[1];
     schedule[4] = schedule[0];
-    schedule[5] = MD_DATA(0, 0, 0, 0, a, start);
-    schedule[6] = MD_DATA(z, y, x, mode, b, c);
-    schedule[7] = MD_DATA(1, 1, 1, 1, a, start);
+    if (layout & LAYOUT_3BUTTON)
+    {
+        schedule[5] = schedule[1];
+        schedule[6] = schedule[0];
+        schedule[7] = schedule[1];
+    }
+    else
+    {
+        schedule[5] = MD_DATA(0, 0, 0, 0, a, start);
+        schedule[6] = MD_DATA(z, y, x, mode, b, c);
+        schedule[7] = MD_DATA(1, 1, 1, 1, a, start);
+    }
 }
 
 static void md_init(void)
@@ -234,11 +245,14 @@ static void md_init(void)
     state = sfc_read();
 
     if (SFC_DEC(state, SFC_LEFT) == 0)
-        layout = LAYOUT_6BUTTON_AB;
+        layout = LAYOUT_AB;
     else if (SFC_DEC(state, SFC_RIGHT) == 0)
-        layout = LAYOUT_6BUTTON_BC;
+        layout = LAYOUT_BC;
     else
-        layout = LAYOUT_6BUTTON_XC;
+        layout = LAYOUT_XC;
+
+    if (SFC_DEC(state, SFC_SELECT) == 0)
+        layout |= LAYOUT_3BUTTON;
 
     /* Initialize interrupt timer */
     TCNT1 = 0;
